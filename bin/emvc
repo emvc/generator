@@ -16,7 +16,7 @@ var version = pkg.version;
 
 // Re-assign process.exit because of commander
 // TODO: Switch to a different command framework
-process.exit = exit
+process.exit = exit;
 
 // CLI
 
@@ -28,8 +28,7 @@ program
   .version(version)
   .usage('[options] [dir]')
   .option('-e, --ejs', 'add ejs engine support (defaults to jade)')
-  .option('    --hbs', 'add handlebars engine support')
-  .option('-H, --hogan', 'add hogan.js engine support')
+  //.option('-p, --pug', 'add pug engine support (defaults to jade)')
   .option('-c, --css <engine>', 'add stylesheet <engine> support (less|stylus|compass|sass) (defaults to plain css)')
   .option('    --git', 'add .gitignore')
   .option('-f, --force', 'force on non-empty directory')
@@ -98,10 +97,16 @@ function createApplication(app_name, path) {
   }
 
   // JavaScript
-  var app = loadTemplate('js/app.js');
-  var www = loadTemplate('js/www');
-  var index = loadTemplate('js/routes/index.js');
-  var users = loadTemplate('js/routes/users.js');
+  var server = loadTemplate('js/server.js');
+  var pagesController = loadTemplate('js/controllers/pages_controller.js');
+  var routes = loadTemplate('js/routes.js');
+  var envs = loadTemplate('js/env.js');
+
+  var initGeneric = loadTemplate('js/config/initializers/00_generic.js');
+  var initMime = loadTemplate('js/config/initializers/01_mime.js');
+  var initViews = loadTemplate('js/config/initializers/02_views.js');
+  var initMiddleware = loadTemplate('js/config/initializers/30_middleware.js');
+
 
   // CSS
   var css = loadTemplate('css/style.css');
@@ -134,31 +139,26 @@ function createApplication(app_name, path) {
       complete();
     });
 
-    mkdir(path + '/routes', function(){
-      write(path + '/routes/index.js', index);
-      write(path + '/routes/users.js', users);
+    mkdir(path + '/app/controllers', function(){
+      write(path + '/app/controllers/pages_controller.js', pagesController);
       complete();
     });
 
-    mkdir(path + '/views', function(){
+    mkdir(path + '/app/views/pages', function(){
       switch (program.template) {
         case 'ejs':
-          copy_template('ejs/index.ejs', path + '/views/index.ejs');
-          copy_template('ejs/error.ejs', path + '/views/error.ejs');
+          copy_template('ejs/main.html.ejs', path + '/app/views/pages/main.html.ejs');
+          copy_template('ejs/error.html.ejs', path + '/app/views/pages/error.html.ejs');
           break;
         case 'jade':
-          copy_template('jade/index.jade', path + '/views/index.jade');
-          copy_template('jade/layout.jade', path + '/views/layout.jade');
-          copy_template('jade/error.jade', path + '/views/error.jade');
+          copy_template('jade/main.jade', path + '/app/views/pages/main.jade');
+          copy_template('jade/layout.jade', path + '/app/views/layout.jade');
+          copy_template('jade/error.jade', path + '/app/views/pages/error.jade');
           break;
-        case 'hjs':
-          copy_template('hogan/index.hjs', path + '/views/index.hjs');
-          copy_template('hogan/error.hjs', path + '/views/error.hjs');
-          break;
-        case 'hbs':
-          copy_template('hbs/index.hbs', path + '/views/index.hbs');
-          copy_template('hbs/layout.hbs', path + '/views/layout.hbs');
-          copy_template('hbs/error.hbs', path + '/views/error.hbs');
+        case 'pug':
+          copy_template('jade/main.jade', path + '/app/views/pages/main.pug');
+          copy_template('jade/layout.jade', path + '/app/views/layout.pug');
+          copy_template('jade/error.jade', path + '/app/views/pages/error.pug');
           break;
       }
       complete();
@@ -167,52 +167,65 @@ function createApplication(app_name, path) {
     // CSS Engine support
     switch (program.css) {
       case 'less':
-        app = app.replace('{css}', eol + 'app.use(require(\'less-middleware\')(path.join(__dirname, \'public\')));');
+        initMiddleware = initMiddleware.replace('{css}', eol + '  this.use(require(\'less-middleware\')(path.join(__dirname, \'/../../public\')));');
         break;
       case 'stylus':
-        app = app.replace('{css}', eol + 'app.use(require(\'stylus\').middleware(path.join(__dirname, \'public\')));');
+        initMiddleware = initMiddleware.replace('{css}', eol + '  this.use(require(\'stylus\').middleware(path.join(__dirname, \'/../../public\')));');
         break;
       case 'compass':
-        app = app.replace('{css}', eol + 'app.use(require(\'node-compass\')({mode: \'expanded\'}));');
+        initMiddleware = initMiddleware.replace('{css}', eol + '  this.use(require(\'node-compass\')({mode: \'expanded\'}));');
         break;
       case 'sass':
-        app = app.replace('{css}', eol + 'app.use(require(\'node-sass-middleware\')({\n  src: path.join(__dirname, \'public\'),\n  dest: path.join(__dirname, \'public\'),\n  indentedSyntax: true,\n  sourceMap: true\n}));');
+        initMiddleware = initMiddleware.replace('{css}', eol + '  this.use(require(\'node-sass-middleware\')({\n  src: path.join(__dirname, \'/../../public\'),\n  dest: path.join(__dirname, \'public\'),\n  indentedSyntax: true,\n  sourceMap: true\n}));');
         break;
       default:
-        app = app.replace('{css}', '');
+        initMiddleware = initMiddleware.replace('{css}', '');
     }
 
     // Template support
-    app = app.replace('{views}', program.template);
+    initViews = initViews.replace(new RegExp('{views}', 'g'), program.template);
+
+    if (program.template === 'jade') {
+      initViews = initViews.replace('{views_format}', eol + "  this.format('html', { extension: '.jade' });");
+    } else if (program.template === 'pug') {
+      initViews = initViews.replace('{views_format}', eol + "  this.format('html', { extension: '.pug' });");
+    } else {
+      initViews = initViews.replace('{views_format}', eol + "  /* this.format('html', { extension: '.jade' }); */");
+    }
 
     // package.json
     var pkg = {
-        name: app_name
-      , version: '0.0.0'
-      , private: true
-      , scripts: { start: 'node ./bin/www' }
-      , dependencies: {
-          'express': '~4.13.1',
-          'body-parser': '~1.13.2',
-          'cookie-parser': '~1.3.5',
-          'debug': '~2.2.0',
-          'morgan': '~1.6.1',
-          'serve-favicon': '~2.3.0'
+      name: app_name,
+      version: '0.0.1',
+      private: true,
+      dependencies: {
+        'emvc': '*',
+        'bootable': '0.2.x',
+        'bootable-environment': '0.2.x',
+        'express': '~4.13.1',
+        'connect-powered-by': '0.1.x',
+        'morgan': '~1.6.1',
+        'serve-favicon': '~2.3.0',
+        'body-parser': '~1.13.2',
+        'method-override': '1.x.x',
+        'debug': '~2.2.0',
+        'cookie-parser': '~1.3.5',
+        'errorhandler': '1.x.x'
+      },
+      scripts: {
+        start: 'node server.js'
       }
-    }
+    };
 
     switch (program.template) {
       case 'jade':
         pkg.dependencies['jade'] = '~1.11.0';
         break;
+      case 'pug':
+        pkg.dependencies['pug'] = '~1.11.0';
+        break;
       case 'ejs':
         pkg.dependencies['ejs'] = '~2.3.3';
-        break;
-      case 'hjs':
-        pkg.dependencies['hjs'] = '~0.0.6';
-        break;
-      case 'hbs':
-        pkg.dependencies['hbs'] = '~3.1.0';
         break;
       default:
     }
@@ -239,11 +252,24 @@ function createApplication(app_name, path) {
 
     // write files
     write(path + '/package.json', JSON.stringify(pkg, null, 2));
-    write(path + '/app.js', app);
-    mkdir(path + '/bin', function(){
-      www = www.replace('{name}', app_name);
-      write(path + '/bin/www', www, 0755);
-      complete();
+    write(path + '/server.js', server);
+    mkdir(path + '/config', function(){
+      write(path + '/config/routes.js', routes);
+
+      mkdir(path + '/config/environments', function() {
+        write(path + '/config/environments/all.js', envs);
+        write(path + '/config/environments/development.js', envs);
+        write(path + '/config/environments/production.js', envs);
+
+        mkdir(path + '/config/initializers', function() {
+          write(path + '/config/initializers/00_generic.js', initGeneric);
+          write(path + '/config/initializers/01_mime.js', initMime);
+          write(path + '/config/initializers/02_views.js', initViews);
+          write(path + '/config/initializers/30_middleware.js', initMiddleware);
+
+          complete();
+        });
+      });
     });
 
     if (program.git) {
@@ -330,8 +356,7 @@ function main() {
   // Template engine
   program.template = 'jade';
   if (program.ejs) program.template = 'ejs';
-  if (program.hogan) program.template = 'hjs';
-  if (program.hbs) program.template = 'hbs';
+  if (program.pug) program.template = 'pug';
 
   // Generate application
   emptyDirectory(destinationPath, function (empty) {
