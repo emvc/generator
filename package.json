@@ -1,7 +1,7 @@
 {
   "name": "emvc-generator",
   "description": "emvc application generator",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "author": "Nicholas Penree <nick@penree.com>",
   "contributors": [
     "TJ Holowaychuk <tj@vision-media.ca>",
@@ -34,7 +34,7 @@
   "main": "bin/emvc",
   "preferGlobal": true,
   "bin": {
-    "express": "./bin/emvc"
+    "emvc": "./bin/emvc"
   },
   "devDependencies": {
     "emvc": "^0.6.4-alpha",
