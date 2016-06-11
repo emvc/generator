@@ -201,7 +201,7 @@ function createApplication(app_name, path) {
       version: '0.0.1',
       private: true,
       dependencies: {
-        'emvc': '*',
+        'emvc': '~0.7.0',
         'bootable': '0.2.x',
         'bootable-environment': '0.2.x',
         'express': '~4.13.1',
